@@ -1,4 +1,7 @@
 import utils
+import pandas as pd
+import numpy as np
+from datetime import timedelta
 
 # PLEASE USE THE GIVEN FUNCTION NAME, DO NOT CHANGE IT
 
@@ -12,10 +15,10 @@ def read_csv(filepath):
     '''
 
     #Columns in events.csv - patient_id,event_id,event_description,timestamp,value
-    events = ''
+    events = pd.read_csv(filepath + 'events.csv')
     
     #Columns in mortality_event.csv - patient_id,timestamp,label
-    mortality = ''
+    mortality = pd.read_csv(filepath + 'mortality_events.csv')
 
     #Columns in event_feature_map.csv - idx,event_id
     feature_map = ''
@@ -45,8 +48,25 @@ def calculate_index_date(events, mortality, deliverables_path):
 
     Return indx_date
     '''
-
-    indx_date = ''
+    #change mortality data column from  str to datetime 
+    mortality['timestamp'] = pd.to_datetime(mortality['timestamp'],format = '%Y-%m-%d',errors = 'ignore')
+    dead_id = mortality['patient_id']
+    
+    #caculate index date in deceased people
+    mort_index = mortality[['patient_id','timestamp']]
+    mort_index['timestamp'] = mort_index['timestamp'] - timedelta(days=30)
+    
+    #get the live events
+    events_alive = events.loc[~events['patient_id'].isin(dead_id)]
+    events_alive['timestamp'] = pd.to_datetime(events_alive['timestamp'],format = '%Y-%m-%d',errors = 'ignore')
+    events_alive_record = events_alive.groupby(['patient_id'])['timestamp'].unique()
+    alive_index = events_alive_record.apply(lambda x:max(x))
+    alive_index = alive_index.to_frame().reset_index()
+    
+    indx_date = mort_index.append(alive_index,ignore_index=True)
+    indx_date.columns = ['patient_id','indx_date']
+    indx_date.to_csv(deliverables_path + 'etl_index_dates.csv', index=False)
+    
     return indx_date
 
 
@@ -72,8 +92,17 @@ def filter_events(events, indx_date, deliverables_path):
 
     Return filtered_events
     '''
-
-    filtered_events = ''
+    #change timestamp from str to datetime object
+    events['timestamp'] = pd.to_datetime(events['timestamp'],format = '%Y-%m-%d',errors = 'ignore')
+    #merge ind_date to events
+    events_ind = pd.merge(events,indx_date,how='outer',on = 'patient_id')
+    
+    #filter events
+    filtered = events_ind.loc[events_ind['timestamp'] > (events_ind['indx_date']- timedelta(days=2000))]
+    filtered = filtered.loc[filtered['timestamp']<filtered['indx_date']]
+    filtered_events = filtered[['patient_id', 'event_id', 'value']]
+    filtered_events.to_csv(deliverables_path + 'etl_filtered_events.csv', index=False)
+    
     return filtered_events
 
 
