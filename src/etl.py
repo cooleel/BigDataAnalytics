@@ -21,7 +21,7 @@ def read_csv(filepath):
     mortality = pd.read_csv(filepath + 'mortality_events.csv')
 
     #Columns in event_feature_map.csv - idx,event_id
-    feature_map = ''
+    feature_map = pd.read_csv(filepath + 'feature_map.csv')
 
     return events, mortality, feature_map
 
@@ -130,7 +130,24 @@ def aggregate_events(filtered_events_df, mortality_df,feature_map_df, deliverabl
 
     Return filtered_events
     '''
-    aggregated_events = ''
+    #remove rows with null value
+    filtered_events = filtered_events_df.dropna(how = 'any',axis=0)
+    
+    #change all lab value to 1
+    filtered_events.loc[:,'value']=1
+    
+    #groupby on 'patient_id' and 'events' then count
+    aggregated_events = filter_events.groupby(by = ['patient_id','event_id'],as_index=False).count()
+    
+    #change feature map df to a dictionary
+    feature_map_dic = dict(zip(feature_map_df['event_id'],feature_map_df['idx']))
+    
+    #replace the event_id with the feature_id in feature_map_dic
+    aggregated_events['event_id'] = aggregate_events['event_id'].map(feature_map_dic)
+    
+    aggregate_events.columns =  ['patient_id','feature_id','value']
+
+    aggregate_events.to_csv(deliverables_path + 'etl_aggregated_events.csv',index = False)
     return aggregated_events
 
 def create_features(events, mortality, feature_map):
