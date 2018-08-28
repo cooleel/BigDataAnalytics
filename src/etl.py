@@ -2,6 +2,7 @@ import utils
 import pandas as pd
 import numpy as np
 from datetime import timedelta
+from sklearn import preprocessing
 
 # PLEASE USE THE GIVEN FUNCTION NAME, DO NOT CHANGE IT
 
@@ -21,7 +22,7 @@ def read_csv(filepath):
     mortality = pd.read_csv(filepath + 'mortality_events.csv')
 
     #Columns in event_feature_map.csv - idx,event_id
-    feature_map = pd.read_csv(filepath + 'feature_map.csv')
+    feature_map = pd.read_csv(filepath + 'event_feature_map.csv')
 
     return events, mortality, feature_map
 
@@ -54,11 +55,11 @@ def calculate_index_date(events, mortality, deliverables_path):
     
     #caculate index date in deceased people
     mort_index = mortality[['patient_id','timestamp']]
-    mort_index['timestamp'] = mort_index['timestamp'] - timedelta(days=30)
+    mort_index = mort_index.assign(timestamp = mort_index['timestamp'] - timedelta(days=30))
     
     #get the live events
     events_alive = events.loc[~events['patient_id'].isin(dead_id)]
-    events_alive['timestamp'] = pd.to_datetime(events_alive['timestamp'],format = '%Y-%m-%d',errors = 'ignore')
+    events_alive.timestamp = pd.to_datetime(events_alive['timestamp'],format = '%Y-%m-%d',errors = 'ignore')
     events_alive_record = events_alive.groupby(['patient_id'])['timestamp'].unique()
     alive_index = events_alive_record.apply(lambda x:max(x))
     alive_index = alive_index.to_frame().reset_index()
@@ -98,8 +99,8 @@ def filter_events(events, indx_date, deliverables_path):
     events_ind = pd.merge(events,indx_date,how='outer',on = 'patient_id')
     
     #filter events
-    filtered = events_ind.loc[events_ind['timestamp'] > (events_ind['indx_date']- timedelta(days=2000))]
-    filtered = filtered.loc[filtered['timestamp']<filtered['indx_date']]
+    filtered = events_ind.loc[(events_ind['timestamp'] >= (events_ind['indx_date']- timedelta(days=2000))) &(events_ind['timestamp'] <= events_ind['indx_date'])]
+ #   filtered = filtered.loc[filtered['timestamp']<filtered['indx_date']]
     filtered_events = filtered[['patient_id', 'event_id', 'value']]
     filtered_events.to_csv(deliverables_path + 'etl_filtered_events.csv', index=False)
     
@@ -134,20 +135,59 @@ def aggregate_events(filtered_events_df, mortality_df,feature_map_df, deliverabl
     filtered_events = filtered_events_df.dropna(how = 'any',axis=0)
     
     #change all lab value to 1
-    filtered_events.loc[:,'value']=1
+    filtered_events = filtered_events.assign(value=1)
     
     #groupby on 'patient_id' and 'events' then count
-    aggregated_events = filter_events.groupby(by = ['patient_id','event_id'],as_index=False).count()
+    aggregated_events = filtered_events.groupby(by = ['patient_id','event_id'],as_index=False).count()
+    
+    #normalized values on 'LAB' and ('DRUG' & 'DIAL') respectively
+    lab = aggregated_events[aggregated_events.event_id.str.startswith('LAB')]
+    
+    #min-max normalization
+    lab['value'] = lab['value'].values.astype(float)
+    min_max_scaler = preprocessing.MinMaxScaler()
+    lab_scaled = min_max_scaler.fit_transform(lab[['value']])
+    lab['value'] = lab_scaled
+    
+    
+    #LAB = LAB.assign(value = (LAB['value']-LAB['value'].min())/(LAB['value'].max()-LAB['value'].min()))
+    
+    diag = aggregated_events[aggregated_events.event_id.str.startswith('DIA')]
+    #min_max_scaler = preprocessing.MinMaxScaler()
+    diag_scaled = min_max_scaler.fit_transform(diag[['value']])
+    diag['value'] = diag_scaled
+    
+    
+    
+    #DIAG = DIAG.assign(value = (DIAG['value']-DIAG['value'].min())/(DIAG['value'].max()-DIAG['value'].min()))
+    
+    drug = aggregated_events[aggregated_events.event_id.str.startswith('DRU')]
+    drug_scaled = min_max_scaler.fit_transform(drug[['value']])
+    drug['value'] = drug_scaled
+    
+    
+    
+    
+    
+    #DRUG = DRUG.assign(value = (DRUG['value']-DRUG['value'].min())/(DRUG['value'].max()-DRUG['value'].min()))
+    #concat 'LAB' and 'DD'
+    aggregated_events = pd.concat([lab,diag,drug]).reset_index(drop=True)
+    
+    
     
     #change feature map df to a dictionary
     feature_map_dic = dict(zip(feature_map_df['event_id'],feature_map_df['idx']))
     
     #replace the event_id with the feature_id in feature_map_dic
-    aggregated_events['event_id'] = aggregate_events['event_id'].map(feature_map_dic)
+    aggregated_events['event_id'] = aggregated_events['event_id'].map(feature_map_dic)
     
-    aggregate_events.columns =  ['patient_id','feature_id','value']
+    #min_max normalization on 'value'
+    # aggregated_events['value'] = (aggregated_events['value']-aggregated_events['value'].min())/(aggregated_events['value'].max()-aggregated_events['value'].min())
+    #aggregated_events['value'] = aggregated_events['value'].apply(lambda x:format(x, '.2f'))
+    
+    aggregated_events.columns =  ['patient_id','feature_id','feature_value']
 
-    aggregate_events.to_csv(deliverables_path + 'etl_aggregated_events.csv',index = False)
+    aggregated_events.to_csv(deliverables_path + 'etl_aggregated_events.csv',index = False)
     return aggregated_events
 
 def create_features(events, mortality, feature_map):
@@ -168,8 +208,8 @@ def create_features(events, mortality, feature_map):
     1. patient_features :  Key - patient_id and value is array of tuples(feature_id, feature_value)
     2. mortality : Key - patient_id and value is mortality label
     '''
-    patient_features = {}
-    mortality = {}
+    patient_features = aggregated_events.groupby('patient_id')[['feature_id','feature_value']].apply(lambda g: list(map(tuple, g.values.tolist()))).to_dict()
+    mortality = mortality[['patient_id','label']].set_index('patient_id')['label'].to_dict()
 
     return patient_features, mortality
 
@@ -189,10 +229,26 @@ def save_svmlight(patient_features, mortality, op_file, op_deliverable):
     Note: Please make sure the features are ordered in ascending order, and patients are stored in ascending order as well.     
     '''
     deliverable1 = open(op_file, 'wb')
-    deliverable2 = open(op_deliverable, 'wb')
+    deliverable2 = open(op_deliverable, 'wb')  
     
-    deliverable1.write(bytes((""),'UTF-8')); #Use 'UTF-8'
-    deliverable2.write(bytes((""),'UTF-8'));
+    
+    for key in sorted(patient_features):
+        if key in mortality:
+            line_svm = "%d" %(1)
+            line_patient = "%d %d" %(key,1)
+        else:
+            line_svm = "%d" %(0)
+            line_patient = "%d %d" %(key,0)
+        for value in sorted(patient_features[key]):
+            if float(value[1]) >0.0:
+                pairs = "%d:%.6f" %(value[0],float(value[1]))
+                line_svm = line_svm + ' '+pairs+' '
+                line_patient = line_patient+' '+pairs+' '
+ #       line_svm += '\n'
+ #       line_patient += '\n'
+        
+        deliverable1.write(bytes(line_svm+'\n','UTF-8')) #Use 'UTF-8'
+        deliverable2.write(bytes(line_patient+'\n','UTF-8'))
 
 def main():
     train_path = '../data/train/'
