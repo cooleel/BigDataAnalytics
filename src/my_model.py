@@ -1,4 +1,17 @@
 import utils
+import pandas as pd
+import numpy as np
+import etl
+import models_partc
+
+from sklearn.datasets import load_svmlight_file
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import *
+
+
+RANDOM_STATE = 545510477
+
 #Note: You can reuse code that you wrote in etl.py and models.py and cross.py over here. It might help.
 # PLEASE USE THE GIVEN FUNCTION NAME, DO NOT CHANGE IT
 
@@ -18,8 +31,42 @@ output: X_train,Y_train,X_test
 '''
 def my_features():
 	#TODO: complete this
-	return None,None,None
+    X_train, Y_train = utils.get_data_from_svmlight('../deliverables/features_svmlight.train')
+    
+    deliverables_path = '../deliverables/'
+    test_events = pd.read_csv('../data/test/events.csv')
+    test_events_map = pd.read_csv('../data/test/event_feature_map.csv')
+    
+    test_aggregated_events = etl.aggregate_events(test_events, None, test_events_map, deliverables_path)
+    
+    #make patient_features for test data
+    test_patient_features = test_aggregated_events.groupby('patient_id')[['feature_id','feature_value']].apply(lambda g: list(map(tuple, g.values.tolist()))).to_dict()
+    
+    #store test_feature.txt and test_svmlight file
+    
+    line_svm = ''
+    line_test = ''
 
+    for key in sorted(test_patient_features):
+        line_svm +='1 '
+        line_test += str(int(key)) +' '
+
+        for tup in sorted(test_patient_features[key]):
+            line_svm += str(int(tup[0])) + ':' + str("{:.6f}".format(tup[1])) + ' '
+            line_test += str(int(tup[0])) + ':' + str("{:.6f}".format(tup[1])) + ' '
+        line_svm += '\n' 
+        line_test += '\n'
+        
+    test_featuresfile = open(deliverables_path + 'test_features.txt', 'wb')
+    test_svmlightfile = open(deliverables_path + 'test_mymodel_svm.train','wb')   
+    test_svmlightfile.write(bytes(line_svm,'UTF-8')) #Use 'UTF-8'
+    test_featuresfile.write(bytes(line_test,'UTF-8'))  
+    
+    test_data = load_svmlight_file(deliverables_path + 'test_mymodel_svm.train',n_features=3190)
+    X_test = test_data[0]
+    
+    return X_train, Y_train, X_test
+    
 
 '''
 You can use any model you wish.
@@ -28,13 +75,22 @@ input: X_train, Y_train, X_test
 output: Y_pred
 '''
 def my_classifier_predictions(X_train,Y_train,X_test):
-	#TODO: complete this
-	return None
+    logisticRegr = LogisticRegression(random_state = RANDOM_STATE, max_iter = 50)
+    logisticRegr.fit(X_train, Y_train)
+    
+    y_pred1 = logisticRegr.predict(X_train)
+    print(roc_auc_score(y_pred1, Y_train))
+    
+    Y_pred = logisticRegr.predict(X_test)
+#    print(Y_pred)
+    return Y_pred
+      
 
 
 def main():
 	X_train, Y_train, X_test = my_features()
 	Y_pred = my_classifier_predictions(X_train,Y_train,X_test)
+
 	utils.generate_submission("../deliverables/test_features.txt",Y_pred)
 	#The above function will generate a csv file of (patient_id,predicted label) and will be saved as "my_predictions.csv" in the deliverables folder.
 

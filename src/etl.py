@@ -241,13 +241,13 @@ def save_svmlight(patient_features, mortality, op_file, op_deliverable):
     for key in sorted(patient_features):
         if mortality.get(key) == 1.0:
             line_svm +='1 '
-            line_patient += str(int(key)) +'1 '
+            line_patient += str(int(key)) +' 1 '
         else:
             line_svm += '0 '
-            line_patient += str(int(key)) +'0 '
+            line_patient += str(int(key)) +' 0 '
         for tup in sorted(patient_features[key]):
-            line_svm += str(int(tup[0])) + ':' + str("{:.3f}".format(tup[1])) + ' '
-            line_patient += str(int(tup[0])) + ':' + str("{:.3f}".format(tup[1])) + ' '
+            line_svm += str(int(tup[0])) + ':' + str("{:.6f}".format(tup[1])) + ' '
+            line_patient += str(int(tup[0])) + ':' + str("{:.6f}".format(tup[1])) + ' '
         line_svm += '\n' 
         line_patient += '\n'
         
