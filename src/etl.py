@@ -231,28 +231,29 @@ def save_svmlight(patient_features, mortality, op_file, op_deliverable):
     
     Note: Please make sure the features are ordered in ascending order, and patients are stored in ascending order as well.     
     '''
+    deliverable1 = open(op_file, 'wb')
+    deliverable2 = open(op_deliverable, 'wb')  
+    
+    
     line_svm = ''
     line_patient = ''
-    
-    for key in sorted(patient_features):
-        if key in mortality:
-            line_svm += str(1) +' '
-            line_patient += str(int(key))+' '+ str(1)+' '
-        else:
-            line_svm = str(0) +' '
-            line_patient = str(int(key))+' '+ str(0)+' '
 
-        for i in sorted(patient_features[key]):
-           # if float(value[1]) >0.0:
-          # pairs = "%d:%.6f" %(value[0],float(value[1]))
-            line_svm += str(int(i[0])) + ":" + str(format(i[1], '.6f')) + ' '
-            line_patient  += str(int(i[0])) + ":" + str(format(i[1], '.6f')) + ' '
- #       line_svm += '\n'
- #       line_patient += '\n'
-    deliverable1 = open(op_file, 'wb')
-    deliverable2 = open(op_deliverable, 'wb')       
-    deliverable1.write(bytes(line_svm+'\n','UTF-8')) #Use 'UTF-8'
-    deliverable2.write(bytes(line_patient+'\n','UTF-8'))
+    for key in sorted(patient_features):
+        if mortality.get(key) == 1.0:
+            line_svm +='1 '
+            line_patient += str(int(key)) +'1 '
+        else:
+            line_svm += '0 '
+            line_patient += str(int(key)) +'0 '
+        for tup in sorted(patient_features[key]):
+            line_svm += str(int(tup[0])) + ':' + str("{:.3f}".format(tup[1])) + ' '
+            line_patient += str(int(tup[0])) + ':' + str("{:.3f}".format(tup[1])) + ' '
+        line_svm += '\n' 
+        line_patient += '\n'
+        
+        
+    deliverable1.write(bytes(line_svm,'UTF-8')) #Use 'UTF-8'
+    deliverable2.write(bytes(line_patient,'UTF-8'))  
 
 def main():
     train_path = '../data/train/'

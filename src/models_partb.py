@@ -12,30 +12,47 @@ RANDOM_STATE = 545510477
 
 #input: X_train, Y_train
 #output: Y_pred
-def logistic_regression_pred(X_train, Y_train):
+def logistic_regression_pred(X_train, Y_train):    
 	#train a logistic regression classifier using X_train and Y_train. Use this to predict labels of X_train
 	#use default params for the classifier
-	return None
+    logisticRegr = LogisticRegression(random_state = RANDOM_STATE)
+    logisticRegr.fit(X_train, Y_train)
+    y_pred = logisticRegr.predict(X_train)
+    return y_pred 
 
 #input: X_train, Y_train
 #output: Y_pred
 def svm_pred(X_train, Y_train):
 	#train a SVM classifier using X_train and Y_train. Use this to predict labels of X_train
 	#use default params for the classifier
-	return None
+    svmModel = LinearSVC(random_state = RANDOM_STATE)
+    svmModel.fit(X_train, Y_train)
+    y_pred = svmModel.predict(X_train)
+	
+    return y_pred
 
 #input: X_train, Y_train
 #output: Y_pred
 def decisionTree_pred(X_train, Y_train):
 	#train a logistic regression classifier using X_train and Y_train. Use this to predict labels of X_train
 	#use max_depth as 5
-	return None
+    dtModel = DecisionTreeClassifier(random_state = RANDOM_STATE, max_depth = 5)
+    dtModel.fit(X_train, Y_train)
+    y_pred = dtModel.predict(X_train)
+	
+    return y_pred
 
 #input: Y_pred,Y_true
 #output: accuracy, auc, precision, recall, f1-score
 def classification_metrics(Y_pred, Y_true):
 	#NOTE: It is important to provide the output in the same order
-	return None,None,None,None,None
+    accuracy = accuracy_score(Y_true, Y_pred)
+    aucScore = roc_auc_score(Y_true, Y_pred)
+    precision = precision_score(Y_true, Y_pred)
+    recall = recall_score(Y_true, Y_pred)
+    f1Score = f1_score(Y_true, Y_pred)
+
+    return accuracy,aucScore,precision,recall,f1Score
 
 #input: Name of classifier, predicted labels, actual labels
 def display_metrics(classifierName,Y_pred,Y_true):
