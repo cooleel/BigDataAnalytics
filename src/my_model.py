@@ -6,7 +6,9 @@ import models_partc
 
 from sklearn.datasets import load_svmlight_file
 from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import *
 
 
@@ -75,14 +77,19 @@ input: X_train, Y_train, X_test
 output: Y_pred
 '''
 def my_classifier_predictions(X_train,Y_train,X_test):
-    logisticRegr = LogisticRegression(random_state = RANDOM_STATE, max_iter = 50)
-    logisticRegr.fit(X_train, Y_train)
+    #logisticRegr = LogisticRegression(random_state = RANDOM_STATE, max_iter = 50)
+    #logisticRegr.fit(X_train, Y_train)
+ #   sample_leaf_options = [1,5,10,50,200,500]
+  #  for leaf_size in sample_leaf_options:
+    rf = RandomForestClassifier(random_state=RANDOM_STATE,oob_score=True,
+                                n_jobs = -1, n_estimators = 600, max_depth =110)
+                                
+    rf.fit(X_train,Y_train)
+       
+#    y_pred1 = rf.predict(X_train)
+#    print(roc_auc_score(Y_train,y_pred1))
     
-    y_pred1 = logisticRegr.predict(X_train)
-    print(roc_auc_score(y_pred1, Y_train))
-    
-    Y_pred = logisticRegr.predict(X_test)
-#    print(Y_pred)
+    Y_pred = rf.predict(X_test)
     return Y_pred
       
 

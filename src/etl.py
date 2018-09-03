@@ -119,6 +119,7 @@ def aggregate_events(filtered_events_df, mortality_df,feature_map_df, deliverabl
     For example if you are using Pandas, you could write: 
         aggregated_events.to_csv(deliverables_path + 'etl_aggregated_events.csv', columns=['patient_id', 'feature_id', 'feature_value'], index=False)
     Return filtered_events
+    '''
     
     #remove rows with null value
     filtered_events = filtered_events_df.dropna(how = 'any',axis=0)
@@ -129,71 +130,23 @@ def aggregate_events(filtered_events_df, mortality_df,feature_map_df, deliverabl
     #groupby on 'patient_id' and 'events' then count
     aggregated_events = filtered_events.groupby(by = ['patient_id','event_id'],as_index=False).count()
     
-    #normalized values on 'LAB' and ('DRUG' & 'DIAL') respectively
-    lab = aggregated_events[aggregated_events.event_id.str.startswith('LAB')]
-    
-    #min-max normalization  
-    lab = lab.assign(value = (lab['value']-lab['value'].min())/(lab['value'].max()-lab['value'].min()))
-    
-    dd = aggregated_events[aggregated_events.event_id.str.startswith('D')]
-    #min_max_scaler = preprocessing.MinMaxScaler()
- #   diag_scaled = min_max_scaler.fit_transform(diag[['value']])
- #   diag['value'] = diag_scaled   
-    dd = dd.assign(value = (dd['value']-dd['value'].min())/(dd['value'].max()-dd['value'].min()))
-    
- #   drug = aggregated_events[aggregated_events.event_id.str.startswith('DRU')]
- #   drug_scaled = min_max_scaler.fit_transform(drug[['value']])
- #   drug['value'] = drug_scaled
        
-    #DRUG = DRUG.assign(value = (DRUG['value']-DRUG['value'].min())/(DRUG['value'].max()-DRUG['value'].min()))
-    #concat 'LAB' and 'DD'
-    aggregated_events = pd.concat([lab,dd]).reset_index(drop=True)
- 
+    aggregated_events_max = aggregated_events.groupby(['event_id'], as_index=False).agg({"value":"max"})
+    norm_events = pd.merge(aggregated_events, aggregated_events_max, left_on="event_id", right_on="event_id")
+    norm_events['feature_value'] = norm_events['value_x'] / norm_events['value_y']
+    norm_events = norm_events[['patient_id','event_id','feature_value']]
+    
     #change feature map df to a dictionary
-    feature_map_dic = dict(zip(feature_map_df['event_id'],feature_map_df['idx']))
+#    feature_map_dic = dict(zip(feature_map_df['event_id'],feature_map_df['idx']))
     
     #replace the event_id with the feature_id in feature_map_dic
-    aggregated_events['event_id'] = aggregated_events['event_id'].map(feature_map_dic)
+    norm_events['event_id'] = norm_events['event_id'].map(feature_map_df.set_index('event_id')['idx'])
+    norm_events.rename(columns = {'event_id':'feature_id'},inplace = True)
     
-    #min_max normalization on 'value'
-    # aggregated_events['value'] = (aggregated_events['value']-aggregated_events['value'].min())/(aggregated_events['value'].max()-aggregated_events['value'].min())
-    #aggregated_events['value'] = aggregated_events['value'].apply(lambda x:format(x, '.2f'))
+    norm_events.to_csv(deliverables_path + 'etl_aggregated_events.csv', index= False)
     
-    aggregated_events.columns =  ['patient_id','feature_id','feature_value']
+    return norm_events
 
-    aggregated_events.to_csv(deliverables_path + 'etl_aggregated_events.csv',index = False)
-    return aggregated_event
-    '''
-    columns=['patient_id', 'feature_id', 'feature_value']
-    filtered_events_df_lab = filtered_events_df[filtered_events_df['event_id'].str.contains('LAB')]
-    filtered_events_df_lab['event_id'] = filtered_events_df_lab['event_id'].map(feature_map_df.set_index('event_id')['idx'])
-    filtered_events_df_lab = filtered_events_df_lab.dropna(subset=['value'])
-    aggregated_events_lab = filtered_events_df_lab.groupby(['patient_id', 'event_id'], as_index=False).count()
-    aggregated_events_lab.rename(columns={'event_id':'feature_id'}, inplace=True)
-    aggregated_events_lab_max = aggregated_events_lab.groupby(['feature_id'], as_index=False).agg({"value":"max"})
-    merged_lab = pd.merge(aggregated_events_lab, aggregated_events_lab_max, left_on="feature_id", right_on="feature_id")
-    merged_lab['feature_value'] = merged_lab['value_x'] / merged_lab['value_y']
-    merged_lab = merged_lab[columns]
-
-
-    # ---- regular continuous valued DRUG etc. stuff
-    continuous_events = filtered_events_df[filtered_events_df['event_id'].str.contains('DRUG') | filtered_events_df['event_id'].str.contains('DIAG')]
-    continuous_events['event_id'] = continuous_events['event_id'].map(
-        feature_map_df.set_index('event_id')['idx'])
-    continuous_events = continuous_events.dropna(subset=['value'])
-    aggregated_events = continuous_events.groupby(['patient_id','event_id'], as_index=False).agg({"value":"sum"})
-    aggregated_events.rename(columns={'event_id': 'feature_id', 'value':'feature_value'}, inplace=True)
-    aggregated_events_max = aggregated_events.groupby(['feature_id'], as_index=False).agg({"feature_value":"max"})
-    merged = pd.merge(aggregated_events, aggregated_events_max, left_on="feature_id", right_on="feature_id")
-    merged['feature_value'] = merged['feature_value_x'] / merged['feature_value_y']
-    merged = merged[columns]
-    aggregated_events = pd.concat([merged_lab, merged])
-    #aggregated_events = aggregated_events.dropna()
-    #print(aggregated_events)
-    aggregated_events.to_csv(deliverables_path + 'etl_aggregated_events.csv',
-                             columns=['patient_id', 'feature_id', 'feature_value'], index=False)
-
-    return aggregated_events
 
 def create_features(events, mortality, feature_map):
     
