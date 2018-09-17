@@ -49,11 +49,11 @@ CREATE VIEW alive_events
 AS
 SELECT events.patient_id, events.event_id, events.time 
 -- ***** your code below *****
-
-
-
-
-
+FROM events
+WHERE NOT EXISTS 
+(SELECT * 
+ FROM mortality
+ WHERE events.patient_id = mortality.patient_id);
 
 
 -- find events for dead patients
@@ -62,8 +62,8 @@ CREATE VIEW dead_events
 AS
 SELECT events.patient_id, events.event_id, events.time
 -- ***** your code below *****
-
-
+FROM events, mortality
+WHERE (events.patient_id = mortality.patient_id);
 
 
 
@@ -81,7 +81,10 @@ FIELDS TERMINATED BY ','
 STORED AS TEXTFILE
 SELECT avg(event_count), min(event_count), max(event_count)
 -- ***** your code below *****
-
+FROM 
+(SELECT COUNT(alive_events.event_id) as event_count
+ FROM alive_events
+ GROUP BY alive_events.patient_id) alive_event_count;
 
 
 
@@ -93,7 +96,10 @@ FIELDS TERMINATED BY ','
 STORED AS TEXTFILE
 SELECT avg(event_count), min(event_count), max(event_count)
 -- ***** your code below *****
-
+FROM 
+(SELECT COUNT(dead_events.event_id) as event_count
+ FROM dead_events
+ GROUP BY dead_events.patient_id) dead_event_count;
 
 
 
@@ -111,7 +117,10 @@ FIELDS TERMINATED BY ','
 STORED AS TEXTFILE
 SELECT avg(encounter_count), min(encounter_count), max(encounter_count)
 -- ***** your code below *****
-
+FROM
+(SELECT COUNT(DISTINCT alive_events.time) as encounter_count
+From alive_events 
+GROUP BY alive_events.patient_id) alive_encounter_count;
 
 
 
@@ -124,7 +133,10 @@ STORED AS TEXTFILE
 SELECT avg(encounter_count), min(encounter_count), max(encounter_count)
 -- ***** your code below *****
 
-
+FROM
+(SELECT COUNT(DISTINCT dead_events.time) as encounter_count
+From dead_events 
+GROUP BY dead_events.patient_id) dead_encounter_count;
 
 
 
@@ -143,7 +155,11 @@ STORED AS TEXTFILE
 SELECT avg(record_length), percentile(record_length, 0.5), min(record_length), max(record_length)
 -- ***** your code below *****
 
-
+FROM 
+(SELECT DATEDIFF(max(to_date(time)), min(to_date(time))) as record_length
+FROM alive_events 
+GROUP BY alive_events.patient_id) alive_record_length;
+ 
 
 
 
@@ -155,7 +171,10 @@ STORED AS TEXTFILE
 SELECT avg(record_length), percentile(record_length, 0.5), min(record_length), max(record_length)
 -- ***** your code below *****
 
-
+FROM 
+(SELECT DATEDIFF(max(to_date(time)), min(to_date(time))) as record_length
+FROM dead_events 
+GROUP BY dead_events.patient_id) dead_record_length;
 
 
 
@@ -176,7 +195,10 @@ STORED AS TEXTFILE
 SELECT event_id, count(*) AS diag_count
 FROM alive_events
 -- ***** your code below *****
-
+WHERE alive_events.event_id LIKE 'DIAG%'
+GROUP BY alive_events.event_id
+ORDER BY diag_count DESC 
+LIMIT 5;
 
 ---- lab
 INSERT OVERWRITE LOCAL DIRECTORY 'common_lab_alive'
@@ -187,6 +209,13 @@ SELECT event_id, count(*) AS lab_count
 FROM alive_events
 -- ***** your code below *****
 
+WHERE alive_events.event_id LIKE 'LAB%'
+GROUP BY alive_events.event_id
+ORDER BY lab_count DESC 
+LIMIT 5;
+
+
+
 
 ---- med
 INSERT OVERWRITE LOCAL DIRECTORY 'common_med_alive'
@@ -196,7 +225,10 @@ STORED AS TEXTFILE
 SELECT event_id, count(*) AS med_count
 FROM alive_events
 -- ***** your code below *****
-
+WHERE alive_events.event_id LIKE 'DRUG%'
+GROUP BY alive_events.event_id
+ORDER BY med_count DESC 
+LIMIT 5;
 
 
 
@@ -210,6 +242,13 @@ SELECT event_id, count(*) AS diag_count
 FROM dead_events
 -- ***** your code below *****
 
+WHERE dead_events.event_id LIKE 'DIAG%'
+GROUP BY dead_events.event_id
+ORDER BY diag_count DESC 
+LIMIT 5;
+
+
+
 
 ---- lab
 INSERT OVERWRITE LOCAL DIRECTORY 'common_lab_dead'
@@ -219,6 +258,11 @@ STORED AS TEXTFILE
 SELECT event_id, count(*) AS lab_count
 FROM dead_events
 -- ***** your code below *****
+
+WHERE dead_events.event_id LIKE 'LAB%'
+GROUP BY dead_events.event_id
+ORDER BY lab_count DESC 
+LIMIT 5;
 
 
 ---- med
@@ -230,11 +274,8 @@ SELECT event_id, count(*) AS med_count
 FROM dead_events
 -- ***** your code below *****
 
-
-
-
-
-
-
-
+WHERE dead_events.event_id LIKE 'DRUG%'
+GROUP BY dead_events.event_id
+ORDER BY med_count DESC 
+LIMIT 5;
 
