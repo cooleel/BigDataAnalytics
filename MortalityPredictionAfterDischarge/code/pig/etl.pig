@@ -16,13 +16,13 @@
 REGISTER utils.py USING jython AS utils;
 
 -- load events file
-events = LOAD '../../data/events.csv' USING PigStorage(',') AS (patientid:int, eventid:chararray, eventdesc:chararray, timestamp:chararray, value:float);
+events = LOAD '../data/events.csv' USING PigStorage(',') AS (patientid:int, eventid:chararray, eventdesc:chararray, timestamp:chararray, value:float);
 
 -- select required columns from events
 events = FOREACH events GENERATE patientid, eventid, ToDate(timestamp, 'yyyy-MM-dd') AS etimestamp, value;
 
 -- load mortality file
-mortality = LOAD '../../data/mortality.csv' USING PigStorage(',') as (patientid:int, timestamp:chararray, label:int);
+mortality = LOAD '../data/mortality.csv' USING PigStorage(',') as (patientid:int, timestamp:chararray, label:int);
 
 mortality = FOREACH mortality GENERATE patientid, ToDate(timestamp, 'yyyy-MM-dd') AS mtimestamp, label;
 
@@ -31,11 +31,19 @@ mortality = FOREACH mortality GENERATE patientid, ToDate(timestamp, 'yyyy-MM-dd'
 -- ***************************************************************************
 -- Compute the index dates for dead and alive patients
 -- ***************************************************************************
-eventswithmort = -- perform join of events and mortality by patientid;
+eventswithmort = JOIN events BY patientid LEFT, mortality BY patientid;
+-- perform join of events and mortality by patientid;
 
-deadevents = -- detect the events of dead patients and create it of the form (patientid, eventid, value, label, time_difference) where time_difference is the days between index date and each event timestamp
+filtered_dead = FILTER eventswithmort BY mortality::label ==1;
+deadevents = FOREACH filtered_dead GENERATE events::patientid as patientid, events::eventid as eventid, events::value as value, mortality::label as label, DaysBetween(mortality::mtimestamp, events::etimestamp)-30 as time_difference;
+-- detect the events of dead patients and create it of the form (patientid, eventid, value, label, time_difference) where time_difference is the days between index date and each event timestamp
 
-aliveevents = -- detect the events of alive patients and create it of the form (patientid, eventid, value, label, time_difference) where time_difference is the days between index date and each event timestamp
+filtered_alive = FILTER eventswithmort BY (mortality::label is null);
+aliveevents_group = GROUP filtered_alive BY events::patientid;
+aliveevents_idx = FOREACH aliveevents_group GENERATE group, MAX(filtered_alive.events::etimestamp) as index_date;
+aliveevents_join = JOIN filtered_alive BY events::patientid LEFT, aliveevents_idx BY group;
+aliveevents = FOREACH aliveevents_join GENERATE filtered_alive::events::patientid as patientid, filtered_alive::events::eventid as eventid, filtered_alive::events::value as value, 0 as label, DaysBetween(aliveevents_idx::index_date, filtered_alive::events::etimestamp) as time_difference;
+-- detect the events of alive patients and create it of the form (patientid, eventid, value, label, time_difference) where time_difference is the days between index date and each event timestamp
 
 --TEST-1
 deadevents = ORDER deadevents BY patientid, eventid;
@@ -46,7 +54,11 @@ STORE deadevents INTO 'deadevents' USING PigStorage(',');
 -- ***************************************************************************
 -- Filter events within the observation window and remove events with missing values
 -- ***************************************************************************
-filtered = -- contains only events for all patients within the observation window of 2000 days and is of the form (patientid, eventid, value, label, time_difference)
+filtered_dead = FILTER deadevents BY (time_difference >=0L) and (time_difference <= 2000L) and (value is not null);
+filtered_alive = FILTER aliveevents BY (time_difference >=0L) and (time_difference <= 2000L) and (value is not null);
+filtered = UNION filtered_dead, filtered_alive;
+
+-- contains only events for all patients within the observation window of 2000 days and is of the form (patientid, eventid, value, label, time_difference)
 
 --TEST-2
 filteredgrpd = GROUP filtered BY 1;
@@ -57,7 +69,11 @@ STORE filtered INTO 'filtered' USING PigStorage(',');
 -- ***************************************************************************
 -- Aggregate events to create features
 -- ***************************************************************************
-featureswithid = -- for group of (patientid, eventid), count the number of  events occurred for the patient and create relation of the form (patientid, eventid, featurevalue)
+group_features = GROUP filtered BY (patientid, eventid);
+featureswithid = FOREACH group_features GENERATE FLATTEN(group) as (patientid, eventid), COUNT(filtered) as featurevalue;
+
+
+-- for group of (patientid, eventid), count the number of  events occurred for the patient and create relation of the form (patientid, eventid, featurevalue)
 
 --TEST-3
 featureswithid = ORDER featureswithid BY patientid, eventid;
@@ -66,12 +82,22 @@ STORE featureswithid INTO 'features_aggregate' USING PigStorage(',');
 -- ***************************************************************************
 -- Generate feature mapping
 -- ***************************************************************************
-all_features = -- compute the set of distinct eventids obtained from previous step, sort them by eventid and then rank these features by eventid to create (idx, eventid). Rank should start from 0.
+events_name = FOREACH featureswithid GENERATE eventid;
+events_name = DISTINCT events_name;
+events_name_ordered = ORDER events_name BY eventid;
+events_rank = RANK events_name_ordered;
+all_features = FOREACH events_rank GENERATE ($0-1) as idx, $1 as eventid;
+
+
+-- compute the set of distinct eventids obtained from previous step, sort them by eventid and then rank these features by eventid to create (idx, eventid). Rank should start from 0.
 
 -- store the features as an output file
 STORE all_features INTO 'features' using PigStorage(' ');
 
-features = -- perform join of featureswithid and all_features by eventid and replace eventid with idx. It is of the form (patientid, idx, featurevalue)
+features_all = JOIN featureswithid BY eventid, all_features BY eventid;
+features = FOREACH features_all GENERATE featureswithid::patientid as patientid, all_features::idx as idx, featureswithid::featurevalue as featurevalue;
+
+-- perform join of featureswithid and all_features by eventid and replace eventid with idx. It is of the form (patientid, idx, featurevalue)
 
 --TEST-4
 features = ORDER features BY patientid, idx;
@@ -81,11 +107,18 @@ STORE features INTO 'features_map' USING PigStorage(',');
 -- Normalize the values using min-max normalization
 -- Use DOUBLE precision
 -- ***************************************************************************
-maxvalues = -- group events by idx and compute the maximum feature value in each group. I t is of the form (idx, maxvalue)
+maxvalues = GROUP features BY idx;
+maxvalues = FOREACH maxvalues GENERATE group as idx, MAX(features.featurevalue) as maxvalue;
 
-normalized = -- join features and maxvalues by idx
 
-features = -- compute the final set of normalized features of the form (patientid, idx, normalizedfeaturevalue)
+-- group events by idx and compute the maximum feature value in each group. I t is of the form (idx, maxvalue)
+
+normalized = JOIN features BY idx, maxvalues BY idx;
+-- join features and maxvalues by idx
+
+features = FOREACH normalized GENERATE features::patientid as patientid, features::idx as idx, features::featurevalue*1.0/maxvalues::maxvalue as normalizedfeaturevalue;
+
+-- compute the final set of normalized features of the form (patientid, idx, normalizedfeaturevalue)
 
 --TEST-5
 features = ORDER features BY patientid, idx;
@@ -116,7 +149,10 @@ features = FOREACH grpd_order
 --      3,1
 -- ***************************************************************************
 
-labels = -- create it of the form (patientid, label) for dead and alive patients
+labels = FOREACH filtered GENERATE patientid, label;
+labels = DISTINCT labels;
+
+-- create it of the form (patientid, label) for dead and alive patients
 
 --Generate sparsefeature vector relation
 samples = JOIN features BY patientid, labels BY patientid;

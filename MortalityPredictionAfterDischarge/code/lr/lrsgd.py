@@ -13,12 +13,19 @@ class LogisticRegressionSGD:
         """
         self.eta = eta
         self.weight = [0.0] * n_feature
+        self.mu = mu
 
     def fit(self, X, y):
         """
         Update model using a pair of training sample
         """
-        pass
+        sig = 1.0 / (1.0 + math.exp(-math.fsum((self.weight[f]*v for f, v in X))))
+        for f,v in X:
+        
+            self.weight[f]= self.weight[f] + self.eta *(v * sig + y)
+        for idx, value in enumerate(self.weight):
+            self.weight[idx] = self.weight[idx] - 2*self.eta * self.mu * self.weight[idx]
+
 
     def predict(self, X):
         """

@@ -34,7 +34,11 @@ def predict_prob(classifiers, X):
     predict the probability of positive label.
     (Return the average obtained from all the classifiers)
     """
-    pass
+    p =  []
+    for i in classifiers:
+        p.append(i.predict_prob(X))
+    avg_p = sum(p)/ len(p)
+    return avg_p
 
 
 if __name__ == '__main__':
